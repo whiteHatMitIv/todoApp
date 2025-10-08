@@ -1,61 +1,172 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# TodoApp — Laravel (avec Resend)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Ce dépôt contient une application Laravel minimale de gestion de tâches (Todo) avec rappels par e-mail.
 
-## About Laravel
+Le projet utilise :
+- PHP ^8.2
+- Laravel ^12
+- Laravel Sanctum (API tokens)
+- Resend (via `resend/resend-laravel`) pour l'envoi d'e-mails
+- Vite + Tailwind pour les assets frontend
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Points clés
+- Les tâches sont représentées par le modèle `App\Models\Task` (champs principaux : `task`, `state`, `target_date`, `reminder_sent`).
+- Les rappels sont envoyés via la notification `App\Notifications\TaskReminder`.
+- Commandes utiles dans `app/Console/Commands` :
+  - `tasks:send-reminders` — parcourt les tâches dont la `target_date` est proche et envoie des notifications.
+  - `test:resend` — commande de test pour recréer une tâche de test ou utiliser une tâche existante et envoyer un e-mail de test.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Installation (développement)
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+1. Clonez le dépôt et placez-vous dans le dossier :
 
-## Learning Laravel
+```bash
+git clone <repo-url> todoApp
+cd todoApp
+```
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+2. Installez les dépendances PHP et JS :
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+```bash
+composer install --prefer-dist --no-interaction
+npm install
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+3. Créez un fichier `.env` (copiez `.env.example`) et générez la clé d'application :
 
-## Laravel Sponsors
+```bash
+cp .env.example .env
+php artisan key:generate
+```
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+4. Créez la base SQLite (le projet crée `database/database.sqlite` automatiquement lors du `post-create-project-cmd`, mais vous pouvez le faire manuellement) :
 
-### Premium Partners
+```bash
+touch database/database.sqlite
+```
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+5. Exécutez les migrations :
 
-## Contributing
+```bash
+php artisan migrate
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+6. Lancez les assets (développement) :
 
-## Code of Conduct
+```bash
+npm run dev
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+7. Lancez le serveur local Laravel :
 
-## Security Vulnerabilities
+```bash
+php artisan serve
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Configuration des e-mails (Resend)
 
-## License
+Cette application utilise Laravel Mail / Notifications. Par défaut vous pouvez configurer un transport sûr pour les tests locaux :
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```env
+MAIL_MAILER=log
+QUEUE_CONNECTION=sync
+MAIL_FROM_ADDRESS=no-reply@example.test
+MAIL_FROM_NAME="Todo App"
+```
+
+Si vous voulez utiliser Resend en production :
+
+1. Installez et configurez `resend/resend-laravel` (déjà présent dans `composer.json`).
+2. Ajoutez votre clé API Resend dans `.env` (selon la configuration du package) :
+
+```env
+RESEND_API_KEY=your_resend_api_key_here
+MAIL_MAILER=resend
+```
+
+Consultez la doc du package Resend pour le paramétrage exact du mailer si vous avez personnalisé le nom du mailer.
+
+## Commandes Artisan utiles
+
+- Lister les commandes disponibles :
+
+```bash
+php artisan list
+```
+
+- Envoyer un rappel (commande automatique qui vérifie la base) :
+
+```bash
+php artisan tasks:send-reminders
+```
+
+- Tester l'envoi Resend / Notification :
+
+```bash
+# Créer une tâche de test pour l'utilisateur 1 (par défaut)
+php artisan test:resend --create-task
+
+# Envoyer à un user existant et une tâche existante
+php artisan test:resend --user=2 --task=123
+```
+
+Options `test:resend` :
+- `--user=ID` : identifiant de l'utilisateur (par défaut 1)
+- `--task=ID` : identifiant d'une tâche existante
+- `--create-task` : crée une tâche de test et l'utilise pour l'envoi
+
+## Exécution planifiée (cron)
+
+Pour envoyer automatiquement les rappels, ajoutez une entrée cron qui exécute le scheduler de Laravel chaque minute :
+
+```cron
+* * * * * cd /chemin/vers/todoApp && php artisan schedule:run >> /dev/null 2>&1
+```
+
+Dans `app/Console/Kernel.php` vous devriez ensuite ajouter (ou vérifier) la ligne qui planifie `tasks:send-reminders`, par exemple :
+
+```php
+$schedule->command('tasks:send-reminders')->everyMinute();
+```
+
+Si vous préférez un intervalle moins agressif, adaptez en conséquence.
+
+## Queue
+
+La notification `TaskReminder` implémente `ShouldQueue`. En production, lancez un worker de queue :
+
+```bash
+php artisan queue:work --tries=3
+```
+
+Pour tester sans workers en local, utilisez `QUEUE_CONNECTION=sync`.
+
+## Base de données / modèles
+
+- `users` : table standard (voir migrations).
+- `tasks` : champs principaux
+  - `id`, `task` (string), `state` ('pending'|'done'), `target_date` (timestamp|null), `reminder_sent` (boolean), timestamps, soft deletes.
+- `notifications` : table utilisée par Laravel Notifications (migrations fournies).
+
+## Tests
+
+Le projet utilise PHPUnit. Lancez les tests :
+
+```bash
+php artisan test
+```
+
+## Dépannage rapide
+
+- Pas d'e-mail envoyé : vérifiez `MAIL_MAILER` et vos logs (`storage/logs/laravel.log`) si vous utilisez `log`.
+- Notifications en file d'attente non traitées : démarrez le worker (`php artisan queue:work`).
+- Erreur `Utilisateur non trouvé` ou `Tâche non trouvée` : vérifiez les IDs et la connexion DB.
+- Problèmes avec Resend : assurez-vous d'avoir la bonne clé API et le mailer correct configuré dans `.env`.
+
+## Contribution
+
+PRs et issues bienvenus. Respectez les conventions PSR-12 et lancez `composer test` / `php artisan test` avant d'ouvrir une PR.
+
+## Licence
+
+MIT
