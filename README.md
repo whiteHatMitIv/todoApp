@@ -10,6 +10,46 @@ Le projet utilise :
 - Vite + Tailwind pour les assets frontend
 
 ## Points clés
+- Commandes utiles dans `app/Console/Commands` :
+  - `tasks:send-reminders` — parcourt les tâches dont la `target_date` est proche et envoie des notifications.
+  - `test:resend` — commande de test pour recréer une tâche de test ou utiliser une tâche existante et envoyer un e-mail de test.
+
+## Routes API & Web
+
+### Authentification & Utilisateur
+
+| Méthode | Chemin                                 | Description                                      | Middleware         |
+|---------|----------------------------------------|--------------------------------------------------|--------------------|
+| POST    | /api/register                          | Inscription (retourne un token)                  | -                  |
+| POST    | /api/login                             | Connexion (retourne un token)                    | -                  |
+| POST    | /api/logout                            | Déconnexion (invalide le token)                  | auth:sanctum       |
+
+### Vérification Email
+| Méthode | Chemin                                 | Description                                      | Middleware         |
+|---------|----------------------------------------|--------------------------------------------------|--------------------|
+| GET     | /api/email/verify/{id}/{hash}          | Vérifie l'email via lien signé                   | signed             |
+| POST    | /api/email/verification-notification   | Renvoyer l'email de vérification                 | auth:sanctum, throttle |
+
+### Mot de passe oublié / réinitialisation
+| Méthode | Chemin                                 | Description                                      | Middleware         |
+|---------|----------------------------------------|--------------------------------------------------|--------------------|
+| POST    | /api/forgot-password                   | Demande de lien de réinitialisation              | -                  |
+| POST    | /api/reset-password                    | Réinitialise le mot de passe                     | -                  |
+
+### Authentification sociale (OAuth)
+| Méthode | Chemin                                 | Description                                      | Middleware         |
+|---------|----------------------------------------|--------------------------------------------------|--------------------|
+| GET     | /api/auth/{provider}                   | Redirige vers le provider OAuth (google, github) | -                  |
+| GET     | /api/auth/{provider}/callback          | Callback OAuth                                   | -                  |
+
+### Tâches (protégé, email vérifié)
+| Méthode | Chemin                                 | Description                                      | Middleware         |
+|---------|----------------------------------------|--------------------------------------------------|--------------------|
+| GET     | /api/tasks                             | Liste paginée des tâches de l'utilisateur        | auth:sanctum, verified |
+| POST    | /api/tasks                             | Crée une nouvelle tâche                          | auth:sanctum, verified |
+| PUT     | /api/tasks/{task}                      | Bascule l'état (done/pending)                    | auth:sanctum, verified |
+| DELETE  | /api/tasks/{task}                      | Supprime une tâche                               | auth:sanctum, verified |
+
 - Les tâches sont représentées par le modèle `App\Models\Task` (champs principaux : `task`, `state`, `target_date`, `reminder_sent`).
 - Les rappels sont envoyés via la notification `App\Notifications\TaskReminder`.
 - Commandes utiles dans `app/Console/Commands` :

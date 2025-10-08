@@ -3,6 +3,9 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+
+use App\Notifications\ResetPasswordNotification;
+use App\Notifications\VerifyEmailNotification;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -22,6 +25,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'avatar',
     ];
 
     /**
@@ -50,5 +54,35 @@ class User extends Authenticatable
     public function routeNotificationForMail($notification)
     {
         return $this->email;
+    }
+
+    public function hasSocialAccount(): bool
+    {
+        return $this->socialAccount !== null;
+    }
+
+    public function getSocialProvider(): ?string
+    {
+        return $this->socialAccount?->provider;
+    }
+
+    public function socialAccount()
+    {
+        return $this->hasOne(\App\Models\SocialAccount::class);
+    }
+
+    public function canResetPassword(): bool
+    {
+        return !$this->hasSocialAccount();
+    }
+
+    public function sendEmailVerificationNotification()
+    {
+        $this->notify(new VerifyEmailNotification);
+    }
+
+    public function sendPasswordResetNotification($token)
+    {
+        $this->notify(new ResetPasswordNotification($token));
     }
 }

@@ -16,6 +16,7 @@ class AuthTest extends TestCase
             'name' => 'Test',
             'email' => 'register@example.test',
             'password' => 'password123',
+            'password_confirmation' => 'password123',
         ];
 
         $response = $this->postJson('/api/register', $payload);
@@ -37,9 +38,9 @@ class AuthTest extends TestCase
 
         $token = $login->json('token');
 
-        $response = $this->withHeader('Authorization', 'Bearer '.$token)
-                         ->postJson('/api/logout');
+    $response = $this->withHeader('Authorization', 'Bearer '.$token)
+             ->postJson('/api/logout');
 
-        $response->assertStatus(200)->assertJson(['message' => 'Déconnection réussie']);
+    $response->assertStatus(200)->assertJson(['message' => 'Déconnexion réussie']);
     }
 }

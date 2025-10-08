@@ -6,14 +6,28 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use Laravel\Socialite\Facades\Socialite;
+use App\Services\SocialAuthService;
+use App\Services\PasswordResetService;
+use Illuminate\Auth\Events\Registered;
+use Illuminate\Support\Facades\Password;
 
 class AuthController extends Controller
 {
-    public function register(Request $request) {
+    public function __construct(
+        private SocialAuthService $socialAuthService,
+        private PasswordResetService $passwordResetService
+    ) {}
+
+    /**
+     * Inscription standard
+     */
+    public function register(Request $request)
+    {
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8',
+            'password' => 'required|string|min:8|confirmed',
         ]);
 
         $user = User::create([
@@ -22,33 +36,226 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
+        // Envoie l'email de vérification
+    event(new Registered($user));
+    // S'assurer que la notification de vérification est envoyée même si
+    // l'utilisateur n'implémente pas MustVerifyEmail
+    $user->sendEmailVerificationNotification();
+
+        // Crée le token avec remember me
+        $expiresAt = $request->remember ? now()->addDays(30) : null;
+        $token = $user->createToken('api-token', ['*'], $expiresAt);
+
         return response()->json([
-            'token' => $user->createToken('api-token')->plainTextToken,
+            'token' => $token->plainTextToken,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'avatar' => $user->avatar,
+                'auth_type' => 'standard',
+                'email_verified' => false,
+            ]
         ], 201);
     }
 
-    public function login(Request $request) {
+    /**
+     * Connexion standard
+     */
+    public function login(Request $request)
+    {
         $request->validate([
             'email' => 'required|email',
             'password' => 'required',
+            'remember' => 'boolean',
         ]);
 
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Identifiants incorrects.']
+                'email' => ['Identifiants incorrects.'],
             ]);
         }
 
+        // Vérifie que l'utilisateur n'a pas de compte social
+        if ($user->hasSocialAccount()) {
+            throw ValidationException::withMessages([
+                'email' => ['Veuillez utiliser la connexion ' . $user->getSocialProvider() . '.'],
+            ]);
+        }
+
+        // Crée le token avec remember me
+        $expiresAt = $request->remember ? now()->addDays(30) : null;
+        $token = $user->createToken('api-token', ['*'], $expiresAt);
+
         return response()->json([
-            'token' => $user->createToken('api-token')->plainTextToken
+            'token' => $token->plainTextToken,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'avatar' => $user->avatar,
+                'auth_type' => 'standard',
+                'email_verified' => $user->hasVerifiedEmail(),
+            ]
         ]);
     }
 
-    public function logout(Request $request) {
-        $request->user()->currentAccessToken()->delete();
+    /**
+     * Redirection vers le provider OAuth
+     */
+    public function redirectToProvider($provider)
+    {
+        $this->validateProvider($provider);
+        return Socialite::driver($provider)->stateless()->redirect();
+    }
 
-        return response()->json(['message' => 'Déconnection réussie']);
+    /**
+     * Callback du provider OAuth
+     */
+    public function handleProviderCallback($provider)
+    {
+        $this->validateProvider($provider);
+
+        try {
+            $user = $this->socialAuthService->handleProviderCallback($provider);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => $e->getMessage()
+            ], 422);
+        }
+
+        // Pour les comptes sociaux, on crée un token long (équivalent remember me)
+        $token = $user->createToken('api-token', ['*'], now()->addDays(30));
+
+        return response()->json([
+            'token' => $token->plainTextToken,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'avatar' => $user->avatar,
+                'auth_type' => $user->getSocialProvider(),
+                'email_verified' => true, // Toujours vrai pour les comptes sociaux
+            ]
+        ]);
+    }
+
+    /**
+     * Déconnexion
+     */
+    public function logout(Request $request)
+    {
+        $user = $request->user();
+        
+        if ($user && $user->currentAccessToken()) {
+            $user->tokens()
+                ->where('id', $user->currentAccessToken()->id)
+                ->delete();
+        }
+
+        return response()->json(['message' => 'Déconnexion réussie']);
+    }
+
+    /**
+     * Envoie l'email de réinitialisation de mot de passe
+     */
+    public function forgotPassword(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        $user = User::where('email', $request->email)->first();
+
+        // Vérifie que l'utilisateur peut réinitialiser son mot de passe
+        if ($user && !$user->canResetPassword()) {
+            return response()->json([
+                'error' => 'Cet email est associé à un compte ' . $user->getSocialProvider() . '. Veuillez utiliser la connexion sociale.'
+            ], 422);
+        }
+
+        // If user exists, explicitly create a token and notify so tests can intercept
+        if ($user) {
+            $token = Password::createToken($user);
+            $user->sendPasswordResetNotification($token);
+
+            return response()->json(['message' => 'Lien de réinitialisation envoyé']);
+        }
+
+        // For non-existing users, respond with success (avoids email enumeration)
+        return response()->json(['message' => 'Lien de réinitialisation envoyé']);
+    }
+
+    /**
+     * Réinitialise le mot de passe
+     */
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'token' => 'required',
+            'email' => 'required|email',
+            'password' => 'required|min:8|confirmed',
+        ]);
+
+        $user = User::where('email', $request->email)->first();
+
+        // Vérifie que l'utilisateur peut réinitialiser son mot de passe
+        if ($user && !$user->canResetPassword()) {
+            return response()->json([
+                'error' => 'Cet email est associé à un compte ' . $user->getSocialProvider() . '. Veuillez utiliser la connexion sociale.'
+            ], 422);
+        }
+
+        $status = $this->passwordResetService->resetPassword(
+            $request->only('email', 'password', 'password_confirmation', 'token')
+        );
+
+        return $status == Password::PASSWORD_RESET
+            ? response()->json(['message' => 'Mot de passe réinitialisé avec succès'])
+            : response()->json(['error' => 'Impossible de réinitialiser le mot de passe'], 422);
+    }
+
+    /**
+     * Renvoie l'email de vérification
+     */
+    public function resendVerificationEmail(Request $request)
+    {
+        if ($request->user()->hasVerifiedEmail()) {
+            return response()->json(['message' => 'Email déjà vérifié']);
+        }
+
+        $request->user()->sendEmailVerificationNotification();
+
+        return response()->json(['message' => 'Lien de vérification envoyé']);
+    }
+
+    /**
+     * Vérifie l'email
+     */
+    public function verifyEmail(Request $request, $id, $hash)
+    {
+        $user = User::findOrFail($id);
+
+        if (!hash_equals($hash, sha1($user->getEmailForVerification()))) {
+            return response()->json(['error' => 'Lien de vérification invalide'], 403);
+        }
+
+        if ($user->hasVerifiedEmail()) {
+            return response()->json(['message' => 'Email déjà vérifié']);
+        }
+
+        $user->markEmailAsVerified();
+
+        return response()->json(['message' => 'Email vérifié avec succès']);
+    }
+
+    /**
+     * Validation du provider
+     */
+    protected function validateProvider($provider)
+    {
+        if (!in_array($provider, ['google', 'github'])) {
+            abort(422, 'Provider non supporté');
+        }
     }
 }
