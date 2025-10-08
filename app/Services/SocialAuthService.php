@@ -33,7 +33,6 @@ class SocialAuthService
             $user = User::where('email', $socialUser->getEmail())->first();
 
             if ($user) {
-                // If an account with this email exists, do not silently link; throw
                 throw new Exception('Un compte existe déjà avec cette adresse email.');
             }
 
@@ -52,7 +51,7 @@ class SocialAuthService
             'email' => $socialUser->getEmail(),
             'password' => Hash::make(Str::random(24)),
             'avatar' => $socialUser->getAvatar(),
-            'email_verified_at' => now(), // Email automatiquement vérifié pour les comptes sociaux
+            'email_verified_at' => now(),
         ]);
 
         $this->createSocialAccount($user, $provider, $socialUser);

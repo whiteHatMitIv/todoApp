@@ -37,10 +37,8 @@ class AuthController extends Controller
         ]);
 
         // Envoie l'email de vérification
-    event(new Registered($user));
-    // S'assurer que la notification de vérification est envoyée même si
-    // l'utilisateur n'implémente pas MustVerifyEmail
-    $user->sendEmailVerificationNotification();
+        event(new Registered($user));
+        $user->sendEmailVerificationNotification();
 
         // Crée le token avec remember me
         $expiresAt = $request->remember ? now()->addDays(30) : null;
@@ -174,7 +172,6 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // If user exists, explicitly create a token and notify so tests can intercept
         if ($user) {
             $token = Password::createToken($user);
             $user->sendPasswordResetNotification($token);
@@ -182,7 +179,6 @@ class AuthController extends Controller
             return response()->json(['message' => 'Lien de réinitialisation envoyé']);
         }
 
-        // For non-existing users, respond with success (avoids email enumeration)
         return response()->json(['message' => 'Lien de réinitialisation envoyé']);
     }
 
