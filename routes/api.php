@@ -1,12 +1,16 @@
 <?php
 
 use App\Http\Controllers\Api\TaskController;
+use App\Http\Controllers\Api\TokenValidationController;
 use App\Http\Controllers\AuthController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
+
+// Endpoint utilisé par le frontend pour vérifier un token sans authentification
+Route::post('/token/validate', [TokenValidationController::class, 'validateToken']);
 
 Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
     ->middleware('signed')

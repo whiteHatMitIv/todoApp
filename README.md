@@ -42,6 +42,10 @@ Le projet utilise :
 | GET     | /api/auth/{provider}                   | Redirige vers le provider OAuth (google, github) | -                  |
 | GET     | /api/auth/{provider}/callback          | Callback OAuth                                   | -                  |
 
+Note: la connexion standard nécessite que l'adresse e-mail de l'utilisateur soit vérifiée. Si l'utilisateur n'a pas vérifié son e-mail, la tentative de connexion renverra une erreur et il faudra utiliser :
+
+- POST /api/email/verification-notification (auth required) pour renvoyer le lien de vérification.
+
 ### Tâches (protégé, email vérifié)
 | Méthode | Chemin                                 | Description                                      | Middleware         |
 |---------|----------------------------------------|--------------------------------------------------|--------------------|

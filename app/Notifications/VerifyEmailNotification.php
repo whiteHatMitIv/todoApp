@@ -35,7 +35,8 @@ class VerifyEmailNotification extends Notification
      */
     public function toMail($notifiable)
     {
-        $verificationUrl = URL::temporarySignedRoute(
+        // Génère l'URL signée backend qui effectuera la vérification
+        $signedUrl = URL::temporarySignedRoute(
             'verification.verify',
             now()->addMinutes(60),
             [
@@ -43,6 +44,13 @@ class VerifyEmailNotification extends Notification
                 'hash' => sha1($notifiable->getEmailForVerification()),
             ]
         );
+
+        // Construit l'URL frontend qui contient en paramètre l'URL backend signée.
+        // Le frontend pourra lire `url` et appeler le backend (XHR) or redirect the browser.
+        $frontendBase = rtrim(env('FRONTEND_URL', ''), '/');
+        $verificationUrl = $frontendBase
+            ? $frontendBase . '/auth/register/verify?url=' . urlencode($signedUrl)
+            : $signedUrl;
 
         return (new MailMessage)
             ->subject('Vérification de votre adresse email')

@@ -41,7 +41,7 @@ class AuthController extends Controller
         $user->sendEmailVerificationNotification();
 
         // Crée le token avec remember me
-        $expiresAt = $request->remember ? now()->addDays(30) : null;
+        $expiresAt = $request->remember ? now()->addDays(30) : now()->addHours(12);
         $token = $user->createToken('api-token', ['*'], $expiresAt);
 
         return response()->json([
@@ -83,8 +83,15 @@ class AuthController extends Controller
             ]);
         }
 
+        // Vérifie que l'email a été vérifié
+        if (!$user->hasVerifiedEmail()) {
+            throw ValidationException::withMessages([
+                'email' => ['Veuillez vérifier votre adresse e-mail avant de vous connecter.'],
+            ]);
+        }
+
         // Crée le token avec remember me
-        $expiresAt = $request->remember ? now()->addDays(30) : null;
+        $expiresAt = $request->remember ? now()->addDays(30) : now()->addHours(12);
         $token = $user->createToken('api-token', ['*'], $expiresAt);
 
         return response()->json([
@@ -103,41 +110,71 @@ class AuthController extends Controller
     /**
      * Redirection vers le provider OAuth
      */
-    public function redirectToProvider($provider)
+    public function redirectToProvider($provider, Request $request)
     {
         $this->validateProvider($provider);
+        // Récupère l'URL de redirection depuis la requête
+        $redirect = $request->query('redirect');
+        
+        if ($redirect) {
+            // Passe l'URL de redirection à Socialite
+            return Socialite::driver($provider)
+                ->stateless()
+                ->redirectUrl(env('GOOGLE_REDIRECT_URI') . '?redirect=' . urlencode($redirect))
+                ->redirect();
+        }
+        
         return Socialite::driver($provider)->stateless()->redirect();
     }
 
     /**
      * Callback du provider OAuth
      */
-    public function handleProviderCallback($provider)
+    public function handleProviderCallback($provider, Request $request)
     {
         $this->validateProvider($provider);
 
         try {
             $user = $this->socialAuthService->handleProviderCallback($provider);
         } catch (\Exception $e) {
-            return response()->json([
-                'error' => $e->getMessage()
-            ], 422);
+            // For API/XHR requests, return a JSON error so tests and frontends can handle it
+            if ($request->wantsJson()) {
+                return response()->json(['error' => $e->getMessage()], 422);
+            }
+
+            $frontendUrl = env('FRONTEND_URL');
+
+            return redirect($frontendUrl . '/auth/error?message=' . urlencode($e->getMessage()));
         }
 
         // Pour les comptes sociaux, on crée un token long (équivalent remember me)
         $token = $user->createToken('api-token', ['*'], now()->addDays(30));
 
-        return response()->json([
-            'token' => $token->plainTextToken,
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'avatar' => $user->avatar,
-                'auth_type' => $user->getSocialProvider(),
-                'email_verified' => true, // Toujours vrai pour les comptes sociaux
-            ]
-        ]);
+        $redirect = $request->query('redirect', env('FRONTEND_URL') . '/auth/callback');
+
+        $allowedHosts = [parse_url(env('FRONTEND_URL'), PHP_URL_HOST)];
+        $host = parse_url($redirect, PHP_URL_HOST);
+
+        if (!in_array($host, $allowedHosts)) {
+            $redirect = env('FRONTEND_URL') . '/auth/callback';
+        }
+
+        // If the request expects JSON (tests or XHR), return the token and user JSON
+        if ($request->wantsJson()) {
+            return response()->json([
+                'token' => $token->plainTextToken,
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'avatar' => $user->avatar,
+                    'auth_type' => 'social',
+                    'email_verified' => $user->hasVerifiedEmail(),
+                ]
+            ]);
+        }
+
+        return redirect($redirect . '?token=' . urlencode($token->plainTextToken));
     }
 
     /**
@@ -232,17 +269,32 @@ class AuthController extends Controller
     {
         $user = User::findOrFail($id);
 
+        // Helper to return or redirect based on request type
+        $respond = function ($statusCode, $payload, $redirectParams = []) use ($request) {
+            if ($request->wantsJson()) {
+                return response()->json($payload, $statusCode);
+            }
+
+            // Redirect to frontend with status and optional message
+            $frontend = rtrim(env('FRONTEND_URL', ''), '/');
+            $redirectUrl = $frontend ? $frontend . '/auth/verify' : '/';
+
+            $qs = http_build_query(array_merge(['status' => $statusCode === 200 ? 'success' : 'error'], $redirectParams));
+
+            return redirect($redirectUrl . '?' . $qs);
+        };
+
         if (!hash_equals($hash, sha1($user->getEmailForVerification()))) {
-            return response()->json(['error' => 'Lien de vérification invalide'], 403);
+            return $respond(403, ['error' => 'Lien de vérification invalide'], ['message' => 'Lien de vérification invalide']);
         }
 
         if ($user->hasVerifiedEmail()) {
-            return response()->json(['message' => 'Email déjà vérifié']);
+            return $respond(200, ['message' => 'Email déjà vérifié'], ['message' => 'Email déjà vérifié']);
         }
 
         $user->markEmailAsVerified();
 
-        return response()->json(['message' => 'Email vérifié avec succès']);
+        return $respond(200, ['message' => 'Email vérifié avec succès'], ['message' => 'Email vérifié avec succès']);
     }
 
     /**
